@@ -9,18 +9,22 @@ const app = express();
 app.use(express.json({ limit: "50mb", extended: true }));
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 var admin = require("firebase-admin");
+const { uploadImage, validateImage, updateUser } = require("./cloud-Functions");
 
-var serviceAccount = require("./admin.json");
+var serviceAccount = require("./admin.json"); // paste firebase Secrete key inside in your admin.json file 
+
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
 });
 
 const userRef = admin.firestore().collection("users");
+const imageRef = admin.firestore().collection("user_upload_images");
+
 const storage = new Storage({
-    keyFilename: "admin.json",
+    keyFilename: "./admin.json",
 });
 
-app.post("/createUser", async (req, res) => {
+app.post("/user_upload_assessment", async (req, res) => {
     const form = new formidable.IncomingForm({ multiples: true });
 
     try {
@@ -28,18 +32,14 @@ app.post("/createUser", async (req, res) => {
             let uuid = UUID();
             var downLoadPath = 'https://firebasestorage.googleapis.com/v0/b/fir-upload-b072b.appspot.com/o/';
             const profileImage = files.profileImage;
-            console.log("Path from Vs--> ", profileImage.path);
+
             if (!profileImage) {
                 return res.status(400).json({
                     message: "Image not found, try again",
                     data: {},
                     error: err,
                 })
-            } else {
-
-
             }
-
             // url of the uploaded image
             let imageUrl;
             const docId = userRef.doc().id;
@@ -55,7 +55,7 @@ app.post("/createUser", async (req, res) => {
                 return res.send("Uploaded file is empty");
             } else {
                 const imageResponse = await bucket.upload(profileImage.path, {
-                    destination: `users/${profileImage.name}`,
+                    destination: `user_upload_assessment/${profileImage.name}`,
                     resumable: true,
                     metadata: {
                         metadata: {
@@ -75,16 +75,36 @@ app.post("/createUser", async (req, res) => {
                 email: fields.email,
                 age: fields.age,
                 profileImage: profileImage.size === 0 ? "" : imageUrl,
+                createdAt: Date.now(),
             };
 
             await userRef.doc(docId).set(userModel, { merge: true })
-                .then((value) => {
-                    res.status(200).send({
-                        message: "User created successfully",
-                        data: userModel,
-                        error: {},
-                    });
-                });
+                .then(async (value) => {
+
+                    const imgData = {
+                        "img_url": "https://firebase/user_upload_assessment/sample_face_6.jpg",
+                        "userid": docId,
+                        "creation_date": userModel.date,
+                        "purpose": {
+                            "type": "cover_picture",
+                            "destination_document": `/users/${docId}`,
+                            "content": {
+                                "cover_picture": userModel.profileImage
+                            }
+                        },
+                        "api_response": userModel,
+                        "process": false
+                    }
+
+                    res.status(200).send(imgData);
+
+                }).catch((error) => {
+                    console.log(error);
+                    res.status(500).send({
+                        error,
+                        message: "Error in Create User."
+                    })
+                })
         });
 
     } catch (error) {
@@ -133,8 +153,15 @@ app.get("/getUsers/:id", async (req, res, next) => {
     }
 });
 
-app.get("/getUsers/validate/:id", async (req, res, next) => {
-    // console.log("in get id", req.params.id);
+app.post("/user/image/moderate/:id", async (req, res, next) => {
+    const { key } = req.body;
+    const { id } = req.params;
+    if (!id) {
+
+        res.status(401).send("Id Not Found !");
+    }
+    if (!key) {
+    }
     let user;
     try {
         await userRef.where("id", "==", req.params.id).get()
@@ -147,8 +174,9 @@ app.get("/getUsers/validate/:id", async (req, res, next) => {
         var axios = require('axios');
         var qs = require("qs");
         var data = qs.stringify({
-            'url': image_url,
-            'key': 'aa1b16ab74b196c0b0ebd62bfb0168f8'
+            // 'url': image_url,
+            'url': "https://firebasestorage.googleapis.com/v0/b/fir-upload-b072b.appspot.com/o/users%2FProfileImg.png?alt=media&token=53e124fd-23ac-4fa9-ae01-416c5909da6a",
+            'key': key
         });
         var config = {
             method: 'post',
@@ -161,45 +189,81 @@ app.get("/getUsers/validate/:id", async (req, res, next) => {
 
         axios(config)
             .then(function (response) {
-                // console.log("in response");
                 // console.log(JSON.stringify(response.data));
-                res.status(200).send(response.data)
+                const data = response.data;
+                const uploadResponse = async (imgData) => {
+                    // const docId = imageRef.doc().id;
+                    // await imageRef.doc(id).set(imgData, { merge: true })
+                    //     .then(() => {
+                    //         res.status(200).send("Image Validation Stored Successfully");
+                    //     })
+                    //     .catch((err) => {
+                    //         console.log("error in store img response", err);
+                    //         res.status(400).send("Failed to store image validation")
+                    //     })
+
+                    const bucketName = "gs://fir-upload-b072b.appspot.com";
+                    const destinationFile = storage.bucket(bucketName).file(`user_upload_images/test.png`);
+                    await storage.bucket(bucketName).file(`user_upload_assessment/Veda.png`).copy(destinationFile); // this is for get source img and set on destiny 
+
+                    res.send("after file copy");
+                }
+                if (data.rating_index === 1 || data.rating_index === 2) {
+                    const imgData = {
+                        "img_url": "https://firebase/user_upload_assessment/sample_face_6.jpg",
+                        "userid": user[0].id,
+                        "creation_date": new Date(),
+                        "purpose": {
+                            "type": "cover_picture",
+                            "destination_document": `/users/${user[0].id}`,
+                            "content": {
+                                "cover_picture": image_url
+                            }
+                        },
+                        "api_response": response.data,
+                        "process": true
+                    }
+                    res.status(201).send(response.data);
+                    // uploadResponse(imgData);
+
+                } else {
+                    res.status(401).send("Image is not appropriate. Try another")
+                }
             })
             .catch(function (error) {
-                console.log(error);
-                res.status(401).send(error)
+                res.status(401).json({
+                    error,
+                    message: "Error in moderate content request. "
+                })
             });
     } catch (error) {
-        return res.status(400).send("Error in Here")
+        return res.status(400).json({
+            message: "Error in validation",
+            error: error,
+        })
     }
 
 });
 
-exports.api = functions.https.onRequest(app)
+app.put("/update/user/:id", async (req, res) => {
+    const { id } = req.params;
+    try {
+        const doc = await admin.firestore().collection(`user_upload_images`).doc(`${id}`).get();
+        const user = doc.data();
+        if (!user) {
+            res.status(400).send("User not found");
+        }
+        res.status(200).send(user);
+    } catch (error) {
+        console.log(error);
+        res.status(400).json({
+            error,
+            message: "Error in get request."
+        })
+    }
+})
 
-
-// {
-//     "img_url": "https://firebase/user_upload_assessment/sample_face_6.jpg",
-//     "userid": "DFCI-02000000042679C465D54897E5431D1E9ED0F9E10DDD99D469C5B7357273D700D13BE162",
-//     "creation_date": "23/November/2022 14:23 232",
-//     "purpose": {
-//       "type": "cover_picture",
-//       "destination_document": "/users/DFCI-02000000042679C465D54897E5431D1E9ED0F9E10DDD99D469C5B7357273D700D13BE162",
-//       "content": {
-//         "cover_picture": "https://firebase/user_upload_images/sample_face_6.jpg"
-//       }
-//     },
-//     "api_response": {
-//       "url_classified": "https://firebase/user_upload_assessment/sample_face_6.jpg",
-//       "rating_index": 2,
-//       "rating_letter": "t",
-//       "predictions": {
-//         "teen": 72.6473867893219,
-//         "everyone": 26.903659105300903,
-//         "adult": 0.4489644430577755
-//       },
-//       "rating_label": "teen",
-//       "error_code": 0
-//     },
-//     "process": true
-//   }
+exports.api = functions.https.onRequest(app);
+exports.uploadImage = functions.https.onRequest(uploadImage);
+exports.validateImage = functions.https.onRequest(validateImage);
+exports.updateUser = functions.https.onRequest(updateUser);
