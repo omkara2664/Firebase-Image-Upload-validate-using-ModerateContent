@@ -1,25 +1,24 @@
 const { fireApp } = require("../firebase");
 
-const userRef = fireApp.collection('users');
+const documentRef = fireApp.collection('moderate-api-response');
 
 const validateImage = async (req, res, next) => {
     const { key } = req.body;
     const { id } = req.query;  // OR const id = req.params[0]; => in cloud functions it take as  const id = req.params[0]; instance of const id = req.params.id because params return {'0':'123456'} 
     if (!id) {
-        res.status(401).send("Id Not Found !");
+        return res.status(401).send("Id Not Found !");
     }
     if (!key) {
-        res.status(401).send("Key Not Found !");
+        return res.status(401).send("Api Key Not Found !");
     }
     let user;
     try {
-        await userRef.where("id", "==", id).get()
+        await documentRef.where("userid", "==", id).get()
             .then((response) => {
                 const data = response.docs.map((doc) => doc.data());
                 user = data;
             });
-        var image_url = user[0].profileImage;
-        // console.log(image_url);
+        var image_url = user[0].img_url;
         var axios = require('axios');
         var qs = require("qs");
         var data = qs.stringify({
@@ -40,52 +39,28 @@ const validateImage = async (req, res, next) => {
                 // console.log(JSON.stringify(response.data));
                 const data = response.data;
 
-                const uploadResponse = async (imgData) => {
-                    const docId = imageRef.doc().id;
-                    await imageRef.doc(id).set(imgData, { merge: true })
+                const uploadResponse = async (apiResponse) => {
+                    await documentRef.doc(id).set({ api_response: apiResponse }, { merge: true })
                         .then(() => {
-                            res.status(200).send("Image Validation Stored Successfully");
+                            return res.status(201).send({
+                                message: "Image is validate, response stored successfully"
+                            });
                         })
                         .catch((err) => {
                             console.log("error in store img response", err);
-                            res.status(400).send("Failed to store image validation")
+                            return res.status(400).send({
+                                message: "Failed to failed to update response",
+                                error: err
+                            })
                         })
-
-                    const bucketName = "gs://fir-upload-b072b.appspot.com";
-                    const destinationFile = storage.bucket(bucketName).file(`user_upload_images/test.png`);
-                    await storage.bucket(bucketName).file(`user_upload_assessment/Veda.png`).copy(destinationFile); // this is for get source img and set on destiny 
-
-                    res.send("after file copy");
                 }
-
                 if (data.error_code === 1011) {
                     return res.status(401).json({
                         error: "Api key not valid",
                         message: data.error
                     });
                 }
-                if (data.rating_index === 1 || data.rating_index === 2) {
-                    const imgData = {
-                        "img_url": "https://firebase/user_upload_assessment/sample_face_6.jpg",
-                        "userid": user[0].id,
-                        "creation_date": new Date(),
-                        "purpose": {
-                            "type": "cover_picture",
-                            "destination_document": `/users/${user[0].id}`,
-                            "content": {
-                                "cover_picture": image_url
-                            }
-                        },
-                        "api_response": response.data,
-                        "process": true
-                    }
-                    res.status(201).send(imgData);
-                    // uploadResponse(imgData);
-
-                }
-                else {
-                    return res.status(401).send("Image is not appropriate. Try another")
-                }
+                uploadResponse(response.data);
             })
             .catch((error) => {
                 console.log("Error in moderate content request.", error);
@@ -95,7 +70,7 @@ const validateImage = async (req, res, next) => {
                 })
             });
     } catch (error) {
-        console.log("ERRRRR", error);
+        console.log("Error", error);
         return res.status(400).send({
             message: "Error in validation",
             error: error,

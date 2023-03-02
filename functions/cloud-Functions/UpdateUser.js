@@ -1,93 +1,98 @@
-const updateUser = (async (req, res, next) => {
-    const { key } = req.body;
-    const { id } = req.params;
-    if (!id) {
+const { fireApp } = require('../firebase')
+const UUID = require('uuid-v4');
+const { Storage } = require("@google-cloud/storage");
 
-        res.status(401).send("Id Not Found !");
+const storage = new Storage({
+    keyFilename: "admin.json",
+});
+
+const documentRef = fireApp.collection("moderate-api-response");
+const userRef = fireApp.collection("users");
+const updateUser = (async (req, res, next) => {
+    const { id } = req.query;
+    let uuid = UUID();
+    var downLoadPath = 'https://firebasestorage.googleapis.com/v0/b/fir-upload-b072b.appspot.com/o/';
+
+    if (!id) {
+        return res.status(401).send("Id Not Found !");
     }
-    if (!key) {
-    }
-    let user;
+    let userDocArr;
     try {
-        await userRef.where("id", "==", req.params.id).get()
+        await documentRef.where("userid", "==", id).get()
             .then((response) => {
                 const data = response.docs.map((doc) => doc.data());
-                user = data;
+                userDocArr = data;
             });
-        var image_url = user[0].profileImage;
-        console.log(image_url);
-        var axios = require('axios');
-        var qs = require("qs");
-        var data = qs.stringify({
-            // 'url': image_url,
-            'url': "https://firebasestorage.googleapis.com/v0/b/fir-upload-b072b.appspot.com/o/users%2FProfileImg.png?alt=media&token=53e124fd-23ac-4fa9-ae01-416c5909da6a",
-            'key': key
-        });
-        var config = {
-            method: 'post',
-            url: `https://api.moderatecontent.com/moderate/`,
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            data: data
-        };
-
-        axios(config)
-            .then(function (response) {
-                // console.log(JSON.stringify(response.data));
-                const data = response.data;
-                const uploadResponse = async (imgData) => {
-                    // const docId = imageRef.doc().id;
-                    // await imageRef.doc(id).set(imgData, { merge: true })
-                    //     .then(() => {
-                    //         res.status(200).send("Image Validation Stored Successfully");
-                    //     })
-                    //     .catch((err) => {
-                    //         console.log("error in store img response", err);
-                    //         res.status(400).send("Failed to store image validation")
-                    //     })
-
-                    const bucketName = "gs://fir-upload-b072b.appspot.com";
-                    const destinationFile = storage.bucket(bucketName).file(`user_upload_images/test.png`);
-                    await storage.bucket(bucketName).file(`user_upload_assessment/Veda.png`).copy(destinationFile); // this is for get source img and set on destiny 
-
-                    res.send("after file copy");
-                }
-                if (data.rating_index === 1 || data.rating_index === 2) {
-                    const imgData = {
-                        "img_url": "https://firebase/user_upload_assessment/sample_face_6.jpg",
-                        "userid": user[0].id,
-                        "creation_date": new Date(),
-                        "purpose": {
-                            "type": "cover_picture",
-                            "destination_document": `/users/${user[0].id}`,
-                            "content": {
-                                "cover_picture": image_url
-                            }
-                        },
-                        "api_response": response.data,
-                        "process": true
-                    }
-                    res.status(201).send(response.data);
-                    // uploadResponse(imgData);
-
-                } else {
-                    res.status(401).send("Image is not appropriate. Try another")
-                }
+        const userDoc = userDocArr[0];
+        const api_response = Object.keys(userDoc.api_response).length;
+        if (api_response === 0) {
+            return res.status(400).send({
+                message: "First validate the image. Api response is empty"
             })
-            .catch(function (error) {
-                res.status(401).json({
-                    error,
-                    message: "Error in moderate content request. "
-                })
-            });
+        }
+        if (userDoc.api_response.rating_index === 1 || userDoc.api_response.rating_index === 2) {
+            try {
+                const doc = await userRef.doc(id).get();  // it two lines for get 
+                const user = doc.data();
+                const userName = user.name.split(" ").join("");
+                const imageName = `${id}_${userName}`;
+
+                const bucketName = "gs://fir-upload-b072b.appspot.com";
+                const destinationFile = storage.bucket(bucketName).file(`user_upload_images/${imageName}.png`);
+                const imageResponse = await storage.bucket(bucketName).file(`user_upload_assessment/${imageName}.png`, {
+                    resumable: true,
+                    metadata: {
+                        metadata: {
+                            firebaseStorageDownloadTokens: uuid,
+                        },
+                    },
+                }).copy(destinationFile); // this is for get source img and set on destiny (destinationFile)
+
+                imageUrl =
+                    downLoadPath +
+                    encodeURIComponent(imageResponse[0].name) + "?alt=media&token=" + uuid
+
+                await userRef.doc(id).set({ cover_picture: imageUrl }, { merge: true });
+                return res.status(201).send({
+                    message: "Image copy in CDN, and updated Users cover_picture successfully",
+                    cover_picture: imageUrl
+                });
+
+                // Get url of file those store in firebase storage and and time limit to url for expire after some days, using expires
+                // const config = {
+                //     action: 'read',
+                //     expires: '03-09-2023',
+                // };
+
+                // storage.bucket(bucketName).file(`user_upload_images/${imageName}.png`).getSignedUrl(config).then((url) => {
+                //     console.log(`Image URL: ${url}`);
+                //     return res.send({ url });
+                // }).catch((error) => {
+                //     console.error(`Error getting signed URL for ${imageName}:`, error);
+                //     return res.send("Error in getting image url");
+                // });
+
+            } catch (error) {
+                console.log(error);
+                return res.status(201).send("Failed to update cover pic");
+            }
+        } else {
+            return res.status(401).send("Image is not appropriate. Try another")
+        }
+
+        //             // Shortcut method for copy file inside firebase bucket storage;
+
+        //             const bucketName = "gs://fir-upload-b072b.appspot.com";
+        //             const destinationFile = storage.bucket(bucketName).file(`user_upload_images/test.png`);
+        //             await storage.bucket(bucketName).file(`user_upload_assessment/Veda.png`).copy(destinationFile); // this is for get source img and set on destiny 
+        //             res.send("after file copy");
+
     } catch (error) {
         return res.status(400).json({
             message: "Error in validation",
             error: error,
         })
     }
-
 });
 
 module.exports = updateUser;

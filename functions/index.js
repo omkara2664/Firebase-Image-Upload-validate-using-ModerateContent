@@ -96,11 +96,11 @@ app.post("/user_upload_assessment", async (req, res) => {
                         "process": false
                     }
 
-                    res.status(200).send(imgData);
+                    return res.status(200).send(imgData);
 
                 }).catch((error) => {
                     console.log(error);
-                    res.status(500).send({
+                    return res.status(500).send({
                         error,
                         message: "Error in Create User."
                     })
@@ -108,7 +108,8 @@ app.post("/user_upload_assessment", async (req, res) => {
         });
 
     } catch (error) {
-        res.send({
+        console.log(error);
+        return res.send({
             message: "Something went wrong",
             data: {},
             error: err,
@@ -120,13 +121,13 @@ app.get("/getUsers", async (req, res, next) => {
     await userRef.get().then((value) => {
         try {
             const data = value.docs.map((doc) => doc.data());
-            res.status(200).send({
+            return res.status(200).send({
                 message: "Fetched all users",
                 data: data,
             });
         } catch (error) {
             console.log("error in catch", error);
-            res.status(500).json({
+            return res.status(500).json({
                 message: "Error in get req",
                 error
             });
@@ -146,7 +147,8 @@ app.get("/getUsers/:id", async (req, res, next) => {
                 });
             });
     } catch (error) {
-        res.status(500).json({
+        console.log(error);
+        return res.status(500).json({
             message: "Error in get req",
             error
         });
@@ -157,8 +159,7 @@ app.post("/user/image/moderate/:id", async (req, res, next) => {
     const { key } = req.body;
     const { id } = req.params;
     if (!id) {
-
-        res.status(401).send("Id Not Found !");
+        return res.status(401).send("Id Not Found !");
     }
     if (!key) {
     }
@@ -206,7 +207,7 @@ app.post("/user/image/moderate/:id", async (req, res, next) => {
                     const destinationFile = storage.bucket(bucketName).file(`user_upload_images/test.png`);
                     await storage.bucket(bucketName).file(`user_upload_assessment/Veda.png`).copy(destinationFile); // this is for get source img and set on destiny 
 
-                    res.send("after file copy");
+                    return res.send("after file copy");
                 }
                 if (data.rating_index === 1 || data.rating_index === 2) {
                     const imgData = {
@@ -223,20 +224,22 @@ app.post("/user/image/moderate/:id", async (req, res, next) => {
                         "api_response": response.data,
                         "process": true
                     }
-                    res.status(201).send(response.data);
+                    return res.status(201).send(response.data);
                     // uploadResponse(imgData);
 
                 } else {
-                    res.status(401).send("Image is not appropriate. Try another")
+                    return res.status(401).send("Image is not appropriate. Try another")
                 }
             })
             .catch(function (error) {
-                res.status(401).json({
+                console.log(error);
+                return res.status(401).json({
                     error,
                     message: "Error in moderate content request. "
                 })
             });
     } catch (error) {
+        console.log(error);
         return res.status(400).json({
             message: "Error in validation",
             error: error,
