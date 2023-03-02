@@ -21,12 +21,13 @@ const userRef = admin.firestore().collection("users");
 const imageRef = admin.firestore().collection("user_upload_images");
 
 const storage = new Storage({
-    keyFilename: "./admin.json",
+    keyFilename: ".admin.json",
 });
+
+// This app request is for node js routing cloud functions are below the code
 
 app.post("/user_upload_assessment", async (req, res) => {
     const form = new formidable.IncomingForm({ multiples: true });
-
     try {
         form.parse(req, async (err, fields, files) => {
             let uuid = UUID();
@@ -155,6 +156,7 @@ app.get("/getUsers/:id", async (req, res, next) => {
     }
 });
 
+
 app.post("/user/image/moderate/:id", async (req, res, next) => {
     const { key } = req.body;
     const { id } = req.params;
@@ -265,6 +267,8 @@ app.put("/update/user/:id", async (req, res) => {
         })
     }
 })
+
+// cloud functions.
 
 exports.api = functions.https.onRequest(app);
 exports.uploadImage = functions.https.onRequest(uploadImage);
